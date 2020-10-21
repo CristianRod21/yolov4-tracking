@@ -148,7 +148,7 @@ def draw_bbox(image, bboxes, classes=read_class_names(cfg.YOLO.CLASSES), show_la
         class_ind = int(out_classes[0][i])
         print( image.shape, coor, classes[class_ind])
         bbox_color = colors[class_ind]
-        bbox_thick = int(0.6 * (image_h + image_w) / 600)
+        bbox_thick = int(0.8 * (image_h + image_w) / 600)
         c1, c2 = (coor[1], coor[0]), (coor[3], coor[2])
         cv2.rectangle(image, c1, c2, bbox_color, bbox_thick)
 
@@ -160,6 +160,7 @@ def draw_bbox(image, bboxes, classes=read_class_names(cfg.YOLO.CLASSES), show_la
 
             cv2.putText(image, bbox_mess, (c1[0], np.float32(c1[1] - 2)), cv2.FONT_HERSHEY_SIMPLEX,
                         fontScale, (0, 0, 0), bbox_thick // 2, lineType=cv2.LINE_AA)
+            
     return image
 
 
@@ -173,7 +174,7 @@ def draw_bbox_tracker(image, bboxes, classes=read_class_names(cfg.YOLO.CLASSES),
     random.seed(0)
     random.shuffle(colors)
     random.seed(None)
-
+    id = 0
     out_boxes, out_scores, out_classes, num_boxes = bboxes
     #print(num_boxes[0])
     for i in range(len(out_boxes)):
@@ -185,32 +186,20 @@ def draw_bbox_tracker(image, bboxes, classes=read_class_names(cfg.YOLO.CLASSES),
 
         bbox_color = colors[class_ind]
         bbox_thick = int(0.6 * (image_h + image_w) / 600)
-        #c1, c2 = (coor[1], coor[0]), (coor[3], coor[2])
-        #cv2.rectangle(image, c1, c2, bbox_color, bbox_thick)
-        #print(f'new_boxes {out_boxes[0]}')
-
-
-
-        # Covertion for multitracker
-        #x1 = int(coor[1])
-        #y1 = int(coor[0])
-        #width = int(coor[2]) - int(coor[0]) # y2-y1 
-        #height = int(coor[3])- int(coor[1]) # x2-x1
-
-        #(coords[1], coords[0]), (int(coords[1]+coords[3]), int(coords[0]+coords[2]))
 
 
         c1 = ( int(out_boxes[i][0]), int(out_boxes[i][1]) )
         c2 = ( int(out_boxes[i][0]+out_boxes[i][2]), int(out_boxes[i][1]+out_boxes[i][3]) )
 
         if show_label:
-            bbox_mess = '%s: %.2f' % (classes[class_ind], score)
+            bbox_mess = '%s: %d' % (classes[class_ind], id)
             t_size = cv2.getTextSize(bbox_mess, 0, fontScale, thickness=bbox_thick // 2)[0]
             c3 = (c1[0] + t_size[0], c1[1] - t_size[1] - 3)
             cv2.rectangle(image, c1, c2, bbox_color, 2,1) #filled
-
+            cv2.rectangle(image, (int(c1[0]), int(c1[1]-15)), (int(c1[0])+(len(classes[class_ind])+len(str(id)))*15, int(c1[1])), bbox_color, -1)
             cv2.putText(image, bbox_mess, (c1[0], np.float32(c1[1] - 2)), cv2.FONT_HERSHEY_SIMPLEX,
                         fontScale, (0, 0, 0), bbox_thick // 2, lineType=cv2.LINE_AA)
+            id += 1
     return image
 
 def bbox_iou(bboxes1, bboxes2):
