@@ -6,6 +6,7 @@ import time
 import tensorflow as tf
 from imutils import perspective
 from imutils import contours
+from core.config import cfg
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if len(gpus) > 0:
@@ -104,7 +105,7 @@ def update_tracked_objects(frame, input_size, boxes,scores,classes,valid_detecti
     newBboxes = []
     
     for bbox in boxes[0]:
-            bbox = tuple(bbox.numpy().tolist()) 
+            bbox = tuple(bbox.tolist()) 
             coor = [None] * 4
             coor[0] = int(bbox[0] * image_h) # y1
             coor[2] = int(bbox[2] * image_h) # y2
@@ -170,6 +171,8 @@ def update_tracker(trackers_dict,frame, newBboxes ):
     for idx, item in enumerate(del_items):            
         trackers_dict.pop(item)
         newBboxes.pop(idx)
+    
+    return newBboxes
         
 def image_resize(image, width = None, height = None, inter = cv2.INTER_AREA):
     # initialize the dimensions of the image to be resized and
@@ -246,7 +249,7 @@ def main(_argv):
     
     # Get initial bounding boxes at time_step 0
     boxes, scores, classes, valid_detections  = get_detections(frame, input_size, infer)   
-    newBboxes, trackers_dict, tmp_frame =update_tracked_objects(frame, input_size, boxes,scores,classes,valid_detections)
+    newBboxes, trackers_dict, tmp_frame =update_tracked_objects(frame, input_size, boxes.numpy(),scores,classes,valid_detections)
         
     # Frames
     prev_frame_time = 0
@@ -271,6 +274,10 @@ def main(_argv):
         # Variable declarations
         boxes,scores,classes,valid_detections,newBboxes, trackers_dict
         
+        allowed_classes = ['person', 'car', 'truck', 'bus', 'bicycle', 'motorcycle', 'train']
+        
+        class_names = utils.read_class_names(cfg.YOLO.CLASSES)
+        
         # Resizes to yolo size
         new_frame = cv2.resize(frame, (input_size, input_size))
         # If its the first frame, or every 10th frames update the detector
@@ -278,14 +285,42 @@ def main(_argv):
             print(f"Frame {frame_id}, updating detections")
             # Updates bboxes from YOLO
             boxes, scores, classes, valid_detections  = get_detections(frame, input_size, infer)
+            
+            
+            # delete detections that are not in allowed_classes
+            deleted_indx = []
+            
+            for i in range(len(boxes[0])): 
+                #print(f'Classes at {}')
+                class_indx = int(classes[0][i])
+                class_name = class_names[class_indx]
+                if class_name not in allowed_classes:
+                    deleted_indx.append(i)
+            print(len(deleted_indx))
+            print(boxes.shape, scores.shape)
+
+            bboxes = np.expand_dims(np.delete(boxes[0], deleted_indx, axis=0), axis=0)
+            scores = np.expand_dims(np.delete(scores[0], deleted_indx, axis=0), axis=0)
+            classes = np.expand_dims(np.delete(classes[0], deleted_indx, axis=0), axis=0)
+            print(bboxes.shape, scores.shape)
+            
             # Updates the objects to be tracked
-            newBboxes, trackers_dict, tmp_frame = update_tracked_objects(frame, input_size, boxes,scores,classes,valid_detections)
-        
+            newBboxes, trackers_dict, tmp_frame = update_tracked_objects(new_frame, input_size, bboxes,scores,classes,valid_detections)
+
+            
         # Updates the tracked objects
-        update_tracker(trackers_dict,frame, newBboxes )
+        newBboxes = update_tracker(trackers_dict,new_frame, newBboxes )
+
+        #for b in newBboxes:
+            #if(b[0] > 0 and b[1]>0 and b[2]>0 and b[3]>0):
+                #print(f'x1,x2 = ({b[0]},{b[0]+b[3]}) y y1,y2=({b[1]}, {b[3]+b[1]})')
+                #crop=new_frame[b[0]:b[0]+b[2], b[1]:b[1]+b[3]]
+                #cv2.imshow("Image", crop)
+                #cv2.waitKey(0)
+
        
         # Pack and print the bbox
-        pred_bbox = [newBboxes, scores.numpy(), classes.numpy(), valid_detections.numpy()]
+        pred_bbox = [newBboxes, scores, classes, valid_detections.numpy()]
         image = utils.draw_bbox_tracker(new_frame, pred_bbox)
         
         # TODO: Apply non-maxima supression?
