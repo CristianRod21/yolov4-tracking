@@ -7,6 +7,7 @@ import tensorflow as tf
 from imutils import perspective
 from imutils import contours
 from core.config import cfg
+from skimage.measure import compare_ssim
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if len(gpus) > 0:
@@ -205,6 +206,27 @@ def image_resize(image, width = None, height = None, inter = cv2.INTER_AREA):
     # return the resized image
     return resized
 
+def bb_intersection_over_union(bboxA, bboxB):
+    boxA = [bboxA[0], bboxA[1], bboxA[0]+bboxA[3], bboxA[1]+bboxA[2]]
+    boxB = [bboxB[0], bboxB[1], bboxB[0]+bboxB[3], bboxB[1]+bboxB[2]]
+    # determine the (x, y)-coordinates of the intersection rectangle
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+    # compute the area of intersection rectangle
+    interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
+    # compute the area of both the prediction and ground-truth
+    # rectangles
+    boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
+    boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
+    # compute the intersection over union by taking the intersection
+    # area and dividing it by the sum of prediction + ground-truth
+    # areas - the interesection area
+    iou = interArea / float(boxAArea + boxBArea - interArea)
+    # return the intersection over union value
+    return iou
+
 def main(_argv):
     config = ConfigProto()
     config.gpu_options.allow_growth = True
@@ -296,13 +318,11 @@ def main(_argv):
                 class_name = class_names[class_indx]
                 if class_name not in allowed_classes:
                     deleted_indx.append(i)
-            print(len(deleted_indx))
-            print(boxes.shape, scores.shape)
-
+            
             bboxes = np.expand_dims(np.delete(boxes[0], deleted_indx, axis=0), axis=0)
             scores = np.expand_dims(np.delete(scores[0], deleted_indx, axis=0), axis=0)
             classes = np.expand_dims(np.delete(classes[0], deleted_indx, axis=0), axis=0)
-            print(bboxes.shape, scores.shape)
+
             
             # Updates the objects to be tracked
             newBboxes, trackers_dict, tmp_frame = update_tracked_objects(new_frame, input_size, bboxes,scores,classes,valid_detections)
@@ -310,13 +330,26 @@ def main(_argv):
             
         # Updates the tracked objects
         newBboxes = update_tracker(trackers_dict,new_frame, newBboxes )
+        
+        
+        # TODO: Fix comapring images of different sizes? scaling?
+        #for b in range(len(newBboxes)):
+            #for a in range(1, len(newBboxes)-1):
+                #TODO: Validate that detections have a reasonable size and is not the same index
+                #if(newBboxes[b][0] > 0 and newBboxes[b][1]>0 and newBboxes[b][2]>0 and newBboxes[b][3]>0 and a-1 != b and newBboxes[a][0] > 0 and  newBboxes[a][1] >0 and  newBboxes[a][2]  > 0 and  newBboxes[a][3]>0):
+                                        
+                    #crop_a=new_frame[int(newBboxes[a][1]):int(newBboxes[a][1]+newBboxes[a][3]), int(newBboxes[a][0]):int(newBboxes[a][0]+newBboxes[a][2])]
+                    
+                    
+                    #crop_b=new_frame[int(newBboxes[b][1]):int(newBboxes[b][1]+newBboxes[b][3]), int(newBboxes[b][0]):int(newBboxes[b][0]+newBboxes[b][2])]
 
-        #for b in newBboxes:
-            #if(b[0] > 0 and b[1]>0 and b[2]>0 and b[3]>0):
-                #print(f'x1,x2 = ({b[0]},{b[0]+b[3]}) y y1,y2=({b[1]}, {b[3]+b[1]})')
-                #crop=new_frame[b[0]:b[0]+b[2], b[1]:b[1]+b[3]]
-                #cv2.imshow("Image", crop)
-                #cv2.waitKey(0)
+                    #cv2.imshow("Image", crop_a)
+                    #cv2.imshow("Image", crop_b)
+                    #iou = bb_intersection_over_union(newBboxes[a], newBboxes[b])
+                    #(score, diff) = compare_ssim(crop_a, crop_b, full=True)
+                    #diff = (diff * 255).astype("uint8")
+                    #print("SSIM: {}".format(score))
+                    #cv2.waitKey(0)
 
        
         # Pack and print the bbox
