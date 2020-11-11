@@ -7,7 +7,6 @@ import tensorflow as tf
 from imutils import perspective
 from imutils import contours
 from core.config import cfg
-from skimage.measure import compare_ssim
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if len(gpus) > 0:
@@ -135,97 +134,115 @@ def update_tracked_objects(frame, input_size, boxes,scores,classes,valid_detecti
     return newBboxes, trackers_dict, tmp_frame
 
 def order_points_old(pts):
-	# initialize a list of coordinates that will be ordered
-	# such that the first entry in the list is the top-left,
-	# the second entry is the top-right, the third is the
-	# bottom-right, and the fourth is the bottom-left
-	rect = np.zeros((4, 2), dtype="float32")
-	# the top-left point will have the smallest sum, whereas
-	# the bottom-right point will have the largest sum
-	s = pts.sum(axis=1)
-	rect[0] = pts[np.argmin(s)]
-	rect[2] = pts[np.argmax(s)]
-	# now, compute the difference between the points, the
-	# top-right point will have the smallest difference,
-	# whereas the bottom-left will have the largest difference
-	diff = np.diff(pts, axis=1)
-	rect[1] = pts[np.argmin(diff)]
-	rect[3] = pts[np.argmax(diff)]
-	# return the ordered coordinates
-	return rect
+    # initialize a list of coordinates that will be ordered
+    # such that the first entry in the list is the top-left,
+    # the second entry is the top-right, the third is the
+    # bottom-right, and the fourth is the bottom-left
+    rect = np.zeros((4, 2), dtype="float32")
+    # the top-left point will have the smallest sum, whereas
+    # the bottom-right point will have the largest sum
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+    # now, compute the difference between the points, the
+    # top-right point will have the smallest difference,
+    # whereas the bottom-left will have the largest difference
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+    # return the ordered coordinates
+    return rect
 
 
-def update_tracker(trackers_dict,frame, newBboxes ):
+def update_tracker(trackers_dict,frame, newBboxes,scores,classes  ):
     del_items = []
+    print('My dream is to fly')
     for idx, items in enumerate(trackers_dict.items()):
         
         obj,tracker = items
-        ok, bbox = tracker.update(frame)
-        if (ok):
-            # Updates bbox
-            newBboxes[idx] = bbox
-        else:
-            print('Failed to track ', obj)
-            del_items.append(obj)
-    
-    # Deletes if failed to track
-    for idx, item in enumerate(del_items):            
-        trackers_dict.pop(item)
-        newBboxes.pop(idx)
-    
-    return newBboxes
+
+        #print(obj, tracker)
+        ok, bbox = None, None
+
+        try:
+            ok, bbox = tracker.update(frame)
+            if (ok):
+                # Updates bbox
+                newBboxes[idx] = bbox
+            else:
+                print('Failed to track ', obj)
+                del_items.append(obj)
         
-def image_resize(image, width = None, height = None, inter = cv2.INTER_AREA):
-    # initialize the dimensions of the image to be resized and
-    # grab the image size
-    dim = None
-    (h, w) = image.shape[:2]
+        except:
+            print('Error')
+            del_items.append(obj)
 
-    # if both the width and height are None, then return the
-    # original image
-    if width is None and height is None:
-        return image
+    # Deletes if failed to track
+    for idx, item in enumerate(del_items):
+        # Deletes object from tracker           
+        trackers_dict.pop(item)
+        #print(f'Before deleting {len(newBboxes)}')
+        # Deletes object from bboxes
+        newBboxes.pop(idx)
+        #print(f'After deleting {len(newBboxes)}')
+        # Deletes object from scores
+        scores =  np.expand_dims(np.delete(scores[0], idx), axis=0)
+        # Deletes object from classes
+        classes = np.expand_dims(np.delete(classes[0], idx), axis=0)
+    
+    return newBboxes,scores,classes 
+        
 
-    # check to see if the width is None
-    if width is None:
-        # calculate the ratio of the height and construct the
-        # dimensions
-        r = height / float(h)
-        dim = (int(w * r), height)
+def get_iou_2(box1, box2, epsilon=1e-5):
+    """ Given two boxes `a` and `b` defined as a list of four numbers:
+            [x1,y1,x2,y2]
+        where:
+            x1,y1 represent the upper left corner
+            x2,y2 represent the lower right corner
+        It returns the Intersect of Union score for these two boxes.
 
-    # otherwise, the height is None
-    else:
-        # calculate the ratio of the width and construct the
-        # dimensions
-        r = width / float(w)
-        dim = (width, int(h * r))
+    Args:
+        a:          (list of 4 numbers) [x1,y1,x2,y2]
+        b:          (list of 4 numbers) [x1,y1,x2,y2]
+        epsilon:    (float) Small value to prevent division by zero
 
-    # resize the image
-    resized = cv2.resize(image, dim, interpolation = inter)
+    Returns:
+        (float) The Intersect of Union score.
+    """
+    
+    
+    ##height = y2-y1
+    #width = x2-x1
+    #x1,y1,height,width
+    
+    # Desired fomat is x1,y1,x2,y2
+    a = (box1[0], box1[1], box1[0]+box1[3], box1[1]+box1[2])
+    b = (box2[0], box2[1], box2[0]+box2[3], box2[1]+box2[2])
 
-    # return the resized image
-    return resized
+    
+    # COORDINATES OF THE INTERSECTION BOX
+    x1 = max(a[0], b[0])
+    y1 = max(a[1], b[1])
+    x2 = min(a[2], b[2])
+    y2 = min(a[3], b[3])
 
-def bb_intersection_over_union(bboxA, bboxB):
-    boxA = [bboxA[0], bboxA[1], bboxA[0]+bboxA[3], bboxA[1]+bboxA[2]]
-    boxB = [bboxB[0], bboxB[1], bboxB[0]+bboxB[3], bboxB[1]+bboxB[2]]
-    # determine the (x, y)-coordinates of the intersection rectangle
-    xA = max(boxA[0], boxB[0])
-    yA = max(boxA[1], boxB[1])
-    xB = min(boxA[2], boxB[2])
-    yB = min(boxA[3], boxB[3])
-    # compute the area of intersection rectangle
-    interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
-    # compute the area of both the prediction and ground-truth
-    # rectangles
-    boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
-    boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
-    # compute the intersection over union by taking the intersection
-    # area and dividing it by the sum of prediction + ground-truth
-    # areas - the interesection area
-    iou = interArea / float(boxAArea + boxBArea - interArea)
-    # return the intersection over union value
+    # AREA OF OVERLAP - Area where the boxes intersect
+    width = (x2 - x1)
+    height = (y2 - y1)
+    # handle case where there is NO overlap
+    if (width<0) or (height <0):
+        return 0.0
+    area_overlap = width * height
+
+    # COMBINED AREA
+    area_a = (a[2] - a[0]) * (a[3] - a[1])
+    area_b = (b[2] - b[0]) * (b[3] - b[1])
+    area_combined = area_a + area_b - area_overlap
+
+    # RATIO OF AREA OF OVERLAP OVER COMBINED AREA
+    iou = area_overlap / (area_combined+epsilon)
     return iou
+
 
 def main(_argv):
     config = ConfigProto()
@@ -270,13 +287,17 @@ def main(_argv):
         raise ValueError("No image! Try with another video format")
     
     # Get initial bounding boxes at time_step 0
-    boxes, scores, classes, valid_detections  = get_detections(frame, input_size, infer)   
-    newBboxes, trackers_dict, tmp_frame =update_tracked_objects(frame, input_size, boxes.numpy(),scores,classes,valid_detections)
+    boxes, scores, classes, valid_detections  = None,None,None,None
+    newBboxes, tmp_frame = None,None
+    trackers_dict = dict()
         
     # Frames
     prev_frame_time = 0
     new_frame_time = 0
     
+    # Contains the most recent bounding boxes of the tracker
+    oldBoxes = []
+    newBboxes = []
     # For every image frame
     while True:
         # Reads the image
@@ -294,7 +315,7 @@ def main(_argv):
             raise ValueError("No image! Try with another video format")
         
         # Variable declarations
-        boxes,scores,classes,valid_detections,newBboxes, trackers_dict
+        boxes,scores,classes,valid_detections,newBboxes
         
         allowed_classes = ['person', 'car', 'truck', 'bus', 'bicycle', 'motorcycle', 'train']
         
@@ -302,18 +323,19 @@ def main(_argv):
         
         # Resizes to yolo size
         new_frame = cv2.resize(frame, (input_size, input_size))
-        # If its the first frame, or every 10th frames update the detector
-        if (frame_id % 10 == 0 ):
+
+        ######## If its the first frame, or every 10th frames update the detector##########
+        if (frame_id % 1 == 0 ):
             print(f"Frame {frame_id}, updating detections")
+            
             # Updates bboxes from YOLO
             boxes, scores, classes, valid_detections  = get_detections(frame, input_size, infer)
             
             
-            # delete detections that are not in allowed_classes
+            # Delete detections that are not in allowed_classes
             deleted_indx = []
             
             for i in range(len(boxes[0])): 
-                #print(f'Classes at {}')
                 class_indx = int(classes[0][i])
                 class_name = class_names[class_indx]
                 if class_name not in allowed_classes:
@@ -322,40 +344,90 @@ def main(_argv):
             bboxes = np.expand_dims(np.delete(boxes[0], deleted_indx, axis=0), axis=0)
             scores = np.expand_dims(np.delete(scores[0], deleted_indx, axis=0), axis=0)
             classes = np.expand_dims(np.delete(classes[0], deleted_indx, axis=0), axis=0)
-
             
+            tmp_frame = cv2.resize(frame, (input_size, input_size))
+            image_h, image_w, _ = input_size,input_size,input_size
+
+            # Initialize Tracking
+            tracker_type = FLAGS.tracker_type
+            # Contains all YOLO predictions
+            newBboxes = []
+            
+            # Loop over YOLO bboxes and change from y1,y2,x1,x2 format to x1,y1,width,height
+            for bbox in bboxes[0]:
+                    bbox = tuple(bbox.tolist()) 
+                    coor = [None] * 4
+                    coor[0] = int(bbox[0] * image_h) # y1
+                    coor[2] = int(bbox[2] * image_h) # y2
+                    coor[1] = int(bbox[1] * image_w) # x1
+                    coor[3] = int(bbox[3] * image_w) # x2
+
+                    # Covertion for multitracker
+                    x1 = int(coor[1])
+                    y1 = int(coor[0])
+                    width = int(coor[2]) - int(coor[0]) # y2-y1 
+                    height = int(coor[3])- int(coor[1]) # x2-x1
+
+                    #print(f'x1 {x1}  y1 {y1}  heigh: {height} width {width} ')
+
+                    coords = tuple([x1,y1,height,width]) 
+
+                    newBboxes.append(coords)
+            
+
+            # Index of the new bounding box that overlaps with an existing bbox
+            overlapping_boxes_indexes = []
+            
+            
+            IOU_THRES = 0.5
+            # Iterates through every new bounding box
+            for i, detectorBox in enumerate(newBboxes):
+                # Max overlapp that occurs within i newBbox and j oldBox
+                max_iou_box_index = 0
+                max_iou_box_score = 0
+                trackerBoxFix = None
+                # Iterates through every old (tracker) bounding box
+                for j,trackerBox in enumerate(oldBoxes):
+                    # Calculates the intersection over union
+                    iou = get_iou_2(detectorBox, trackerBox ) 
+                    print(iou)
+                    #input('Kys to continue...')
+                    if (iou > IOU_THRES):
+                        # If the new IOU is greater than one found before, updates
+                        if (iou > max_iou_box_score ):
+                            max_iou_box_index = j
+                            max_iou_box_score = iou
+                            trackerBoxFix = trackerBox
+                if (max_iou_box_score > IOU_THRES):
+                    print(f'ALERT ALERT OVERLAPPING: {i},{max_iou_box_index}, {detectorBox},{trackerBoxFix}')
+                    # Overlapping with existing bbox DONT add it to tracker
+                    overlapping_boxes_indexes.append(i)
+                    
+            
+            for i, box in enumerate(newBboxes):
+                if (box[0] > 0 and box[1] > 0 and box[2] > 0 and box[3] > 0):
+                    if (i not in overlapping_boxes_indexes):
+                        trackers_dict[box] = createTrackerByName(tracker_type)
+                        trackers_dict[box].init(frame, box)
+                        oldBoxes.append(box)
+                    else:
+                        print(f'Skipping box {i} existing overlapp')
             # Updates the objects to be tracked
-            newBboxes, trackers_dict, tmp_frame = update_tracked_objects(new_frame, input_size, bboxes,scores,classes,valid_detections)
-
+            #newBboxes, trackers_dict, tmp_frame = update_tracked_objects(new_frame, input_size, bboxes,scores,classes,valid_detections)
             
+            
+        #print(scores.shape, classes.shape)
+        #print(oldBoxes)
         # Updates the tracked objects
-        newBboxes = update_tracker(trackers_dict,new_frame, newBboxes )
-        
-        
-        # TODO: Fix comapring images of different sizes? scaling?
-        #for b in range(len(newBboxes)):
-            #for a in range(1, len(newBboxes)-1):
-                #TODO: Validate that detections have a reasonable size and is not the same index
-                #if(newBboxes[b][0] > 0 and newBboxes[b][1]>0 and newBboxes[b][2]>0 and newBboxes[b][3]>0 and a-1 != b and newBboxes[a][0] > 0 and  newBboxes[a][1] >0 and  newBboxes[a][2]  > 0 and  newBboxes[a][3]>0):
-                                        
-                    #crop_a=new_frame[int(newBboxes[a][1]):int(newBboxes[a][1]+newBboxes[a][3]), int(newBboxes[a][0]):int(newBboxes[a][0]+newBboxes[a][2])]
-                    
-                    
-                    #crop_b=new_frame[int(newBboxes[b][1]):int(newBboxes[b][1]+newBboxes[b][3]), int(newBboxes[b][0]):int(newBboxes[b][0]+newBboxes[b][2])]
+        # IMPORTANT
+        tracker_boxes,scores,classes  = update_tracker(trackers_dict,new_frame, oldBoxes ,scores,classes )
 
-                    #cv2.imshow("Image", crop_a)
-                    #cv2.imshow("Image", crop_b)
-                    #iou = bb_intersection_over_union(newBboxes[a], newBboxes[b])
-                    #(score, diff) = compare_ssim(crop_a, crop_b, full=True)
-                    #diff = (diff * 255).astype("uint8")
-                    #print("SSIM: {}".format(score))
-                    #cv2.waitKey(0)
-
-       
+        
         # Pack and print the bbox
-        pred_bbox = [newBboxes, scores, classes, valid_detections.numpy()]
+        pred_bbox = [tracker_boxes, scores, classes, valid_detections.numpy()]
         image = utils.draw_bbox_tracker(new_frame, pred_bbox)
         
+
         # TODO: Apply non-maxima supression?
         
         # Prints FPS
@@ -366,58 +438,10 @@ def main(_argv):
         fps = str(int(fps)) 
         cv2.putText(result, fps, (70, 70), cv2.FONT_HERSHEY_SIMPLEX , 3, (100, 255, 0), 3, cv2.LINE_AA)
         
-        #gray = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
-        #gray = cv2.GaussianBlur(gray, (7, 7), 0)
-        # perform edge detection, then perform a dilation + erosion to
-        # close gaps in between object edges
-        #edged = cv2.Canny(gray, 50, 100)
-        #edged = cv2.dilate(edged, None, iterations=1)
-        #edged = cv2.erode(edged, None, iterations=1)
-        #cv2.imshow("Image", edged)
-        #cv2.waitKey(0)
-        
-                # find contours in the edge map
-        #cnts = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL,
-            #cv2.CHAIN_APPROX_SIMPLE)
-        #cnts = imutils.grab_contours(cnts)
-        #sort the contours from left-to-right and initialize the bounding box
-        #point colors
-        #(cnts, _) = contours.sort_contours(cnts)
-        #colors = ((0, 0, 255), (240, 0, 159), (255, 0, 0), (255, 255, 0))
+       
+        # Changin old boxes
+        oldBoxes = tracker_boxes
 
-        #loop over the contours individually
-        #for (i, c) in enumerate(cnts):
-            #if the contour is not sufficiently large, ignore it
-            #if cv2.contourArea(c) < 100:
-                #continue
-            #compute the rotated bounding box of the contour, then
-            #draw the contours
-            #box = cv2.minAreaRect(c)
-            #box = cv2.cv.BoxPoints(box) if imutils.is_cv2() else cv2.boxPoints(box)
-            #box = np.array(box, dtype="int")
-            #cv2.drawContours(result, [box], -1, (0, 255, 0), 2)
-            #show the original coordinates
-            #print("Object #{}:".format(i + 1))
-            #print(box)
-
-
-            #rect = perspective.order_points(box)
-            #show the re-ordered coordinates
-            #print(rect.astype("int"))
-            #print("")
-            
-                #loop over the original points and draw them
-            #for ((x, y), color) in zip(rect, colors):
-                #cv2.circle(image, (int(x), int(y)), 5, color, -1)
-            #draw the object num at the top-left corner
-            #cv2.putText(image, "Object #{}".format(i + 1),
-                #(int(rect[0][0] - 15), int(rect[0][1] - 15)),
-                #cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-            #show the image
-            #cv2.imshow("Image", image)
-            #cv2.waitKey(0)
-
-        
         if not FLAGS.dis_cv2_window:
             cv2.namedWindow("result", cv2.WINDOW_AUTOSIZE)
             cv2.imshow("result", result)
