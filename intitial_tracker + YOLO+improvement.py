@@ -179,16 +179,18 @@ def update_tracker(trackers_dict,frame, newBboxes,scores,classes  ):
 
     # Deletes if failed to track
     for idx, item in enumerate(del_items):
+        bounding_box_index = newBboxes.index(item)
+        print(bounding_box_index, item)
         # Deletes object from tracker           
         trackers_dict.pop(item)
         #print(f'Before deleting {len(newBboxes)}')
         # Deletes object from bboxes
-        newBboxes.pop(idx)
+        newBboxes.pop(bounding_box_index)
         #print(f'After deleting {len(newBboxes)}')
         # Deletes object from scores
-        scores =  np.expand_dims(np.delete(scores[0], idx), axis=0)
+        scores =  np.expand_dims(np.delete(scores[0], bounding_box_index), axis=0)
         # Deletes object from classes
-        classes = np.expand_dims(np.delete(classes[0], idx), axis=0)
+        classes = np.expand_dims(np.delete(classes[0], bounding_box_index), axis=0)
     
     return newBboxes,scores,classes 
         
@@ -371,8 +373,8 @@ def main(_argv):
                     #print(f'x1 {x1}  y1 {y1}  heigh: {height} width {width} ')
 
                     coords = tuple([x1,y1,height,width]) 
-
-                    newBboxes.append(coords)
+                    if(coords[0] > 0 and coords[1] > 0 and coords[2] > 0 and coords[3] > 0):
+                        newBboxes.append(coords)
             
 
             # Index of the new bounding box that overlaps with an existing bbox
@@ -390,7 +392,7 @@ def main(_argv):
                 for j,trackerBox in enumerate(oldBoxes):
                     # Calculates the intersection over union
                     iou = get_iou_2(detectorBox, trackerBox ) 
-                    print(iou)
+                    print(f'YOLO box {i} overlapped with existing Tracker box {j} with an IOU of: {iou}')
                     #input('Kys to continue...')
                     if (iou > IOU_THRES):
                         # If the new IOU is greater than one found before, updates
@@ -399,11 +401,9 @@ def main(_argv):
                             max_iou_box_score = iou
                             trackerBoxFix = trackerBox
                 if (max_iou_box_score > IOU_THRES):
-                    print(f'ALERT ALERT OVERLAPPING: {i},{max_iou_box_index}, {detectorBox},{trackerBoxFix}')
                     # Overlapping with existing bbox DONT add it to tracker
                     overlapping_boxes_indexes.append(i)
                     
-            
             for i, box in enumerate(newBboxes):
                 if (box[0] > 0 and box[1] > 0 and box[2] > 0 and box[3] > 0):
                     if (i not in overlapping_boxes_indexes):
@@ -414,7 +414,7 @@ def main(_argv):
                         print(f'Skipping box {i} existing overlapp')
             # Updates the objects to be tracked
             #newBboxes, trackers_dict, tmp_frame = update_tracked_objects(new_frame, input_size, bboxes,scores,classes,valid_detections)
-            
+            input('STOP IT')
             
         #print(scores.shape, classes.shape)
         #print(oldBoxes)
@@ -422,6 +422,7 @@ def main(_argv):
         # IMPORTANT
         tracker_boxes,scores,classes  = update_tracker(trackers_dict,new_frame, oldBoxes ,scores,classes )
 
+        input(f'Old boxes {oldBoxes}')
         
         # Pack and print the bbox
         pred_bbox = [tracker_boxes, scores, classes, valid_detections.numpy()]
@@ -441,6 +442,7 @@ def main(_argv):
        
         # Changin old boxes
         oldBoxes = tracker_boxes
+        input(f'{len(oldBoxes)}')
 
         if not FLAGS.dis_cv2_window:
             cv2.namedWindow("result", cv2.WINDOW_AUTOSIZE)
