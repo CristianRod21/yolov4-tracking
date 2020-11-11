@@ -40,6 +40,7 @@ flags.DEFINE_boolean('dis_cv2_window', False, 'disable cv2 window during the pro
 flags.DEFINE_string('tracker_type', 'CSRT', 'the tracking algorithm [BOOSTING, MIL, KCF, TLD, MEDIANFLOW, GOTURN, MOSSE,CSRT] ')
 
 def createTrackerByName(tracker_type):# Set up tracker.
+    tracker = None
     if tracker_type == 'BOOSTING':
         tracker = cv2.TrackerBoosting_create()
     if tracker_type == 'MIL':
@@ -154,9 +155,12 @@ def order_points_old(pts):
     return rect
 
 
+def delete_item(dict_key, bboxes_index, trackers_dict, bboxes, scores, classes):
+    pass
+
 def update_tracker(trackers_dict,frame, newBboxes,scores,classes  ):
     del_items = []
-    print('My dream is to fly')
+    print('Updating tracker')
     for idx, items in enumerate(trackers_dict.items()):
         
         obj,tracker = items
@@ -171,18 +175,18 @@ def update_tracker(trackers_dict,frame, newBboxes,scores,classes  ):
                 newBboxes[idx] = bbox
             else:
                 print('Failed to track ', obj)
-                del_items.append(obj)
+                del_items.append([obj, idx])
         
         except:
             print('Error')
-            del_items.append(obj)
+            del_items.append([obj, idx])
 
     # Deletes if failed to track
     for idx, item in enumerate(del_items):
-        bounding_box_index = newBboxes.index(item)
-        print(bounding_box_index, item)
+        bounding_box_index = item[1] - idx
+        print(bounding_box_index, item[0])
         # Deletes object from tracker           
-        trackers_dict.pop(item)
+        trackers_dict.pop(item[0])
         #print(f'Before deleting {len(newBboxes)}')
         # Deletes object from bboxes
         newBboxes.pop(bounding_box_index)
@@ -190,7 +194,8 @@ def update_tracker(trackers_dict,frame, newBboxes,scores,classes  ):
         # Deletes object from scores
         scores =  np.expand_dims(np.delete(scores[0], bounding_box_index), axis=0)
         # Deletes object from classes
-        classes = np.expand_dims(np.delete(classes[0], bounding_box_index), axis=0)
+        classes = np.expand_dims(np.delete(classes[0], bounding_box_index), axis=0) 
+
     
     return newBboxes,scores,classes 
         
@@ -299,7 +304,9 @@ def main(_argv):
     
     # Contains the most recent bounding boxes of the tracker
     oldBoxes = []
-    newBboxes = []
+    oldScoresList = [[]]
+    oldClassesList = [[]]
+    newBboxes = []    
     # For every image frame
     while True:
         # Reads the image
@@ -326,26 +333,30 @@ def main(_argv):
         # Resizes to yolo size
         new_frame = cv2.resize(frame, (input_size, input_size))
 
+        print(f"-----------------Frame Id: {frame_id}------------------------")
+
         ######## If its the first frame, or every 10th frames update the detector##########
-        if (frame_id % 1 == 0 ):
+        if (frame_id % 5 == 0 ):
             print(f"Frame {frame_id}, updating detections")
             
             # Updates bboxes from YOLO
             boxes, scores, classes, valid_detections  = get_detections(frame, input_size, infer)
-            
+
+            print(f"Valid detections: ", valid_detections.numpy())
             
             # Delete detections that are not in allowed_classes
             deleted_indx = []
             
-            for i in range(len(boxes[0])): 
+            for i in range(len(boxes[0][:valid_detections.numpy()[0]])): 
                 class_indx = int(classes[0][i])
                 class_name = class_names[class_indx]
                 if class_name not in allowed_classes:
                     deleted_indx.append(i)
             
-            bboxes = np.expand_dims(np.delete(boxes[0], deleted_indx, axis=0), axis=0)
-            scores = np.expand_dims(np.delete(scores[0], deleted_indx, axis=0), axis=0)
-            classes = np.expand_dims(np.delete(classes[0], deleted_indx, axis=0), axis=0)
+            bboxes = np.expand_dims(np.delete(boxes[0][:valid_detections.numpy()[0]], deleted_indx, axis=0), axis=0)
+            scores = np.expand_dims(np.delete(scores[0][:valid_detections.numpy()[0]], deleted_indx, axis=0), axis=0)
+            classes = np.expand_dims(np.delete(classes[0][:valid_detections.numpy()[0]], deleted_indx, axis=0), axis=0)
+            print("Bboxes originales[0]: ",bboxes[0], "Scores:", scores, "Clases:", classes, "\n")
             
             tmp_frame = cv2.resize(frame, (input_size, input_size))
             image_h, image_w, _ = input_size,input_size,input_size
@@ -354,7 +365,7 @@ def main(_argv):
             tracker_type = FLAGS.tracker_type
             # Contains all YOLO predictions
             newBboxes = []
-            
+
             # Loop over YOLO bboxes and change from y1,y2,x1,x2 format to x1,y1,width,height
             for bbox in bboxes[0]:
                     bbox = tuple(bbox.tolist()) 
@@ -373,15 +384,14 @@ def main(_argv):
                     #print(f'x1 {x1}  y1 {y1}  heigh: {height} width {width} ')
 
                     coords = tuple([x1,y1,height,width]) 
-                    if(coords[0] > 0 and coords[1] > 0 and coords[2] > 0 and coords[3] > 0):
-                        newBboxes.append(coords)
-            
+                    newBboxes.append(coords)
+            print(f"new bboxes: {newBboxes}")
 
             # Index of the new bounding box that overlaps with an existing bbox
             overlapping_boxes_indexes = []
             
             
-            IOU_THRES = 0.5
+            IOU_THRES = 0.2
             # Iterates through every new bounding box
             for i, detectorBox in enumerate(newBboxes):
                 # Max overlapp that occurs within i newBbox and j oldBox
@@ -405,27 +415,35 @@ def main(_argv):
                     overlapping_boxes_indexes.append(i)
                     
             for i, box in enumerate(newBboxes):
-                if (box[0] > 0 and box[1] > 0 and box[2] > 0 and box[3] > 0):
+                    print("Appending box", i)
                     if (i not in overlapping_boxes_indexes):
                         trackers_dict[box] = createTrackerByName(tracker_type)
                         trackers_dict[box].init(frame, box)
                         oldBoxes.append(box)
+
+                        oldScoresList[0].append(scores[0][i])
+                        oldClassesList[0].append(classes[0][i])
                     else:
                         print(f'Skipping box {i} existing overlapp')
             # Updates the objects to be tracked
             #newBboxes, trackers_dict, tmp_frame = update_tracked_objects(new_frame, input_size, bboxes,scores,classes,valid_detections)
-            input('STOP IT')
-            
+            # input('STOP IT')
+            print("Indices de los overlaps: ",overlapping_boxes_indexes, "Scores:", scores, "Clases:", classes, "\n")
         #print(scores.shape, classes.shape)
         #print(oldBoxes)
         # Updates the tracked objects
         # IMPORTANT
-        tracker_boxes,scores,classes  = update_tracker(trackers_dict,new_frame, oldBoxes ,scores,classes )
+        oldScores = np.array(oldScoresList)
+        oldClasses = np.array(oldClassesList)
+        # input(f'Before update-------------------------------\n: Old boxes {oldBoxes}')
+        print(trackers_dict)
+        tracker_boxes,scores,classes  = update_tracker(trackers_dict,new_frame, oldBoxes , oldScores, oldClasses )
+        # input(f'After update-------------------------------\n: Old boxes {oldBoxes}')
+        print(trackers_dict)
 
-        input(f'Old boxes {oldBoxes}')
         
         # Pack and print the bbox
-        pred_bbox = [tracker_boxes, scores, classes, valid_detections.numpy()]
+        pred_bbox = [tracker_boxes, oldScores, oldClasses, valid_detections.numpy()]
         image = utils.draw_bbox_tracker(new_frame, pred_bbox)
         
 
@@ -442,7 +460,7 @@ def main(_argv):
        
         # Changin old boxes
         oldBoxes = tracker_boxes
-        input(f'{len(oldBoxes)}')
+        # input(f'{len(oldBoxes)}')
 
         if not FLAGS.dis_cv2_window:
             cv2.namedWindow("result", cv2.WINDOW_AUTOSIZE)
