@@ -38,7 +38,7 @@ flags.DEFINE_string('weights', './checkpoints/yolov4-416',
 flags.DEFINE_integer('size', 416, 'resize images to')
 flags.DEFINE_boolean('tiny', False, 'yolo or yolo-tiny')
 flags.DEFINE_string('model', 'yolov4', 'yolov3 or yolov4')
-flags.DEFINE_string('video', './data/road.mp4', 'path to input video')
+flags.DEFINE_string('video', 'C:\\Users\cjrs2\\Downloads\\cars_trim_Slomo.avi', 'path to input video')
 flags.DEFINE_float('iou', 0.45, 'iou threshold')
 flags.DEFINE_float('score', 0.25, 'score threshold')
 flags.DEFINE_string('output', None, 'path to output video')
@@ -62,7 +62,7 @@ ClassesFile = 'yolov4.txt'#path to list of classes file
 WeightsFile = "yolov3-tiny.weights"#'C:/Users/Arik/Documents/Python_Scripts/darknet/build/darknet/x64/yolov3-spp.weights'
 # #path to weights file
 CfgFile = "yolov3-tiny.cfg"#'C:/Users/Arik/Documents/Python_Scripts/darknet/build/darknet/x64/yolov3-spp.cfg'#path to CFG gile
-VideoFile = 'C:/Users/Arik/Documents/Python_Scripts/C0001.mp4'#'C:/Users/Arik/Pictures/20181001_125852.jpg'#'C:/Users/Arik/Documents/Python_Scripts/tracker/venice.mp4'#'MOT17-11.mp4'#'C:/Users/Arik/Documents/Python_Scripts/tracker/mov1_edit.avi'#'C:/Users/Arik/Pictures/20180928_084707.mp4'
+VideoFile = 'C:\\Users\\cjrs2\\Downloads\\cars_trim_Slomo.avi'#'C:/Users/Arik/Pictures/20181001_125852.jpg'#'C:/Users/Arik/Documents/Python_Scripts/tracker/venice.mp4'#'MOT17-11.mp4'#'C:/Users/Arik/Documents/Python_Scripts/tracker/mov1_edit.avi'#'C:/Users/Arik/Pictures/20180928_084707.mp4'
 VidOrImg = 'V'#'V' - the given file is a video, 'I' - the given file is an image
 conf_threshold = 0.5#confidence level threshold
 nms_threshold = 0.1#non-max-surpression threshold
@@ -121,6 +121,41 @@ def createTrackerByName(trackerType):# Set up tracker.
         if tracker_type == "CSRT":
             tracker = cv2.TrackerCSRT_create()
     return tracker
+
+def get_detections(frame, input_size, infer):
+    frame_size = frame.shape[:2]
+    image_data = cv2.resize(frame, (input_size, input_size))
+    image_data = image_data / 255.
+    image_data = image_data[np.newaxis, ...].astype(np.float32)
+    prev_time = time.time()
+
+    if FLAGS.framework == 'tflite':
+        interpreter.set_tensor(input_details[0]['index'], image_data)
+        interpreter.invoke()
+        pred = [interpreter.get_tensor(output_details[i]['index']) for i in range(len(output_details))]
+        if FLAGS.model == 'yolov3' and FLAGS.tiny == True:
+            boxes, pred_conf = filter_boxes(pred[1], pred[0], score_threshold=0.25,
+                                            input_shape=tf.constant([input_size, input_size]))
+        else:
+            boxes, pred_conf = filter_boxes(pred[0], pred[1], score_threshold=0.25,
+                                            input_shape=tf.constant([input_size, input_size]))
+    else:
+        batch_data = tf.constant(image_data)
+        pred_bbox = infer(batch_data)
+        for key, value in pred_bbox.items():
+            boxes = value[:, :, 0:4]
+            pred_conf = value[:, :, 4:]
+    boxes, scores, classes, valid_detections = tf.image.combined_non_max_suppression(
+        boxes=tf.reshape(boxes, (tf.shape(boxes)[0], -1, 1, 4)),
+        scores=tf.reshape(
+            pred_conf, (tf.shape(pred_conf)[0], -1, tf.shape(pred_conf)[-1])),
+        max_output_size_per_class=50,
+        max_total_size=50,
+        iou_threshold=FLAGS.iou,
+        score_threshold=FLAGS.score
+    )
+        
+    return  boxes, scores, classes, valid_detections
 
 
 def draw_bounding_box(img, boxes, ActiveInd=0):#label, x, y, x_plus_w, y_plus_h):
@@ -286,27 +321,40 @@ def main(_argv):
         out = cv2.VideoWriter(FLAGS.output, codec, fps, (width, height))
 
     VideoFile = FLAGS.video
+    print(VideoFile)
+    # if VidOrImg == 'V':
+    #     video = cv2.VideoCapture(VideoFile)
+    #     if not video.isOpened():
+    #         print("could not open video, isnt opened\n", VideoFile)
+    #         sys.exit()
+
+    #     frame_id = 0
+    #     return_value, image = video.read()
+
+        # if return_value:
+        #     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        #     image = Image.fromarray(frame)
+        # else:
+        #     #print(f'What is this {cv2.CAP_PROP_FRAME_COUNT} and frame {frame_id}')
+        #     if frame_id == video.get(cv2.CAP_PROP_FRAME_COUNT):
+        #         print("Video processing complete")
+        #     raise ValueError("No image! Try with another video format")
+        # print('video opened')
+
     if VidOrImg == 'V':
         video = cv2.VideoCapture(VideoFile)
         if not video.isOpened():
-            print("could not open video, isnt opened\n", VideoFile)
+            print("could not open video\n")
             sys.exit()
-        video.set(1, frame_no)
+        #video.set(1, frame_no)
+        ok, image = video.read()
 
-        frame_id = 0
-        return_value, image = video.read()
-
-        if return_value:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            image = Image.fromarray(frame)
-        else:
-            if frame_id == video.get(cv2.CAP_PROP_FRAME_COUNT):
-                print("Video processing complete")
-            raise ValueError("No image! Try with another video format")
+        if not ok:
+            print("could not open video\n")
+            sys.exit()
         print('video opened')
     else:
         image = cv2.imread(VideoFile)
-
 
     if PicRotate == 1:
         image = np.flip(np.transpose(image, (1, 0, 2)), 0)
