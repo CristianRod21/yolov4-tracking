@@ -70,7 +70,7 @@ DetectPeriod = 10#number of frames after which a detection with YOLO is performe
 MaxDetectNum = 20#maximal allowed number of detections
 PicRotate = 0#1 - rotate the picture or frame, 0 - don't rotate
 isSave = 1#1 - save the image or video, 0 - don't save
-SavePath = 'matan/YOLO2.avi'#[ath and name of the file the video or image will be saved to
+SavePath = 'YOLO2.avi'#[ath and name of the file the video or image will be saved to
 WriteFPS = 24#number of frames per second
 showImage = False#True - show each frame
 makeImageOnly = False
@@ -83,10 +83,10 @@ FR = 25.0#frame rate
 VidLength = 291
 frame_no = 3300#/(FR*VidLength)#index of first frame for detection and tracking
 MaxDist = 20#number of pixels in which a detection is allowed to be found from its predcessor
-VarFileName = 'matan/ObjectsLocation.pkl'
+VarFileName = 'ObjectsLocation.pkl'
 IOULim = 0.2
-isLoadList = 1
-DetectionListFN = 'matan/ObjectDetection_Every10Frames.pkl'
+isLoadList = 0
+DetectionListFN = 'ObjectDetection_Every10Frames.pkl'
 # isInitialize = 1
 # isSaveInitialization = 1
 # InitializeFileName = 'matan/InitVar.pkl
@@ -160,19 +160,22 @@ def get_detections(frame, input_size, infer):
 
 def draw_bounding_box(img, boxes, ActiveInd=0):#label, x, y, x_plus_w, y_plus_h):
     for ind, currentDetection in enumerate(boxes):
-        label = currentDetection['label']
-        #print(currentDetection)
+        label = 'panzer'#currentDetection['label']
+        #print(f'Current detection: {currentDetection}')
+        #input('Continue....')
         #print('\n')
         x1 = currentDetection['TopLeft_x'][-1]
         y1 = currentDetection['TopLeft_y'][-1]
         x2 = currentDetection['BottomRight_x'][-1]
         y2 = currentDetection['BottomRight_y'][-1]
+        print(f'PRINTING the coordinates x1 {x1}, y1 {y1}, x2 {x2} y2 {y2}')
+
         if label == "person":
             boxColor = (int(0), int(255), int(0))
         else:
             boxColor = (int(255), int(0), int(0))
 
-        cv2.rectangle(img, (x1, y1), (x2, y2), boxColor, 2)
+        cv2.rectangle(img, (x1, y1),  (x2, y2),boxColor, 2)
 
         cv2.putText(img, label+'_'+str(ActiveInd[ind]), (x1-10, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, boxColor, 2)
     return img
@@ -222,21 +225,28 @@ def IOU(oldBoxes, newBox, IOULim):
 def CreateDetectionList(image, boxes):
     DetectionList = []
     multiTracker = []
+
+    im_height, im_width, _ = image.shape
     for i, bbox in enumerate(boxes):
         tracker = createTrackerByName(tracker_type)
         multiTracker.append(tracker)  # , image, tuple(bbox))
-        x = bbox['TopLeft_x']
-        y = bbox['TopLeft_y']
-        w = bbox['BottomRight_x'] - x
-        h = bbox['BottomRight_y'] - y
+        #print(image.shape)
+        # check boxes
+        x = int(bbox[i][0].numpy() * im_width)
+        y = int(bbox[i][1].numpy() * im_height)
+        w = int(bbox[i][2].numpy()*im_width - x)
+        h = int(bbox[i][3].numpy()*im_height - y)
         temp = [x, y, w, h]
+        #print(temp, len(temp), type(temp), type(DetectionList), type(x))
         ok = multiTracker[i].init(image, tuple(temp))
-        # tempDict={'TopLeft_x':[x],'TopLeft_y':[y],'BottomRight_x':[bbox['BottomRight_x']],'BottomRight_y':[bbox['BottomRight_y']],'isActive':1}
-        DetectionList.append(bbox)
-        DetectionList[i]['TopLeft_x'] = [x]
-        DetectionList[i]['TopLeft_y'] = [y]
-        DetectionList[i]['BottomRight_x'] = [x + w]
-        DetectionList[i]['BottomRight_y'] = [y + h]
+        #tempDict={'TopLeft_x':[x],'TopLeft_y':[y],'BottomRight_x':[bbox['BottomRight_x']],'BottomRight_y':[bbox['BottomRight_y']],'isActive':1}
+        tempDict = {'TopLeft_x': [x], 'TopLeft_y': [y], 'BottomRight_x': [x+w], 'BottomRight_y': [y+h], 'isActive':1}
+        DetectionList.append(tempDict)
+
+        #DetectionList[i]['TopLeft_x'] = [x]
+        #DetectionList[i]['TopLeft_y'] = [y]
+        #DetectionList[i]['BottomRight_x'] = [x + w]
+        #DetectionList[i]['BottomRight_y'] = [y + h]
     return DetectionList, multiTracker, ok
 
 
@@ -245,6 +255,7 @@ def DetectAndAssign(frame, DetectionList, boxes, tracker_type):
     # xCenter0 = (np.array([l['BottomRight_x'][-1] for l in DetectionList])+np.array([l['TopLeft_x'][-1] for l in DetectionList]))/2
     # yCenter0 = (np.array([l['TopLeft_y'][-1] for l in DetectionList])+np.array([l['BottomRight_y'][-1] for l in DetectionList]))/2
     ActiveInd, xTopOld, yTopOld, yBottomOld, xBottomOld = [], [], [], [], []
+    im_height, im_width, _ = frame.shape
     for DL in DetectionList:
         xTopOld.append(DL['TopLeft_x'][-1])
         yTopOld.append(DL['TopLeft_y'][-1])
@@ -252,20 +263,35 @@ def DetectAndAssign(frame, DetectionList, boxes, tracker_type):
         yBottomOld.append(DL['BottomRight_y'][-1])
         DL['isActive'] = 0
     for i, bbox in enumerate(boxes):
-        xTopNew = bbox['TopLeft_x']
-        yTopNew = bbox['TopLeft_y']
-        xBottomNew = bbox['BottomRight_x']
-        yBottomNew = bbox['BottomRight_y']
+        # xTopNew = bbox[i][0]
+        # yTopNew = bbox[i][1]
+        # xBottomNew = bbox[i][2]
+        # yBottomNew = bbox[i][3]    
+        xTopNew = int(bbox[i][0].numpy() * im_width)
+        yTopNew = int(bbox[i][1].numpy() * im_height)
+        xBottomNew = int(bbox[i][2].numpy()*im_width )
+        yBottomNew = int(bbox[i][3].numpy()*im_height )
         ClosestInd = IOU([xTopOld, yTopOld, xBottomOld, yBottomOld], [xTopNew, yTopNew, xBottomNew, yBottomNew], IOULim)
         # find the closest previous detection. If there is no close detection, create a new item in the list
         if ClosestInd < 0:
-            DetectionList.append(bbox)
+            #input('wait appending bbox')
+            x_b = int(bbox[i][0].numpy() * im_width)
+            y_b = int(bbox[i][1].numpy() * im_height)
+            w_B = int(bbox[i][2].numpy()*im_width)
+            h_b = int(bbox[i][3].numpy()*im_height )
+            tempDict = {'TopLeft_x': [x_b], 'TopLeft_y': [y_b], 'BottomRight_x': [w_B], 'BottomRight_y': [h_b], 'isActive':1}
+            DetectionList.append(tempDict)
+            # DetectionList.append(bbox[i])
             ActiveInd.append(len(DetectionList) - 1)
-            DetectionList[-1]['TopLeft_x'] = [xTopNew]
-            DetectionList[-1]['TopLeft_y'] = [yTopNew]
-            DetectionList[-1]['BottomRight_x'] = [xBottomNew]
-            DetectionList[-1]['BottomRight_y'] = [yBottomNew]
-            DetectionList[-1]['isActive'] = 1
+            # print(f' Last {DetectionList}' )
+            # print('-----')
+            # print(xTopNew,yTopNew,xBottomNew,yBottomNew)
+            # input('wait')
+            # DetectionList[-1]['TopLeft_x'] = [xTopNew]
+            # DetectionList[-1]['TopLeft_y'] = [yTopNew]
+            # DetectionList[-1]['BottomRight_x'] = [xBottomNew]
+            # DetectionList[-1]['BottomRight_y'] = [yBottomNew]
+            # DetectionList[-1]['isActive'] = 1
         else:
             DetectionList[ClosestInd]['TopLeft_x'].append(xTopNew)
             DetectionList[ClosestInd]['TopLeft_y'].append(yTopNew)
@@ -278,6 +304,9 @@ def DetectAndAssign(frame, DetectionList, boxes, tracker_type):
         multiTracker.append(tracker)
         temp = [xTopNew, yTopNew, xBottomNew - xTopNew, yBottomNew - yTopNew]
         ok = multiTracker[i].init(frame, tuple(temp))
+        print(DetectionList)
+        #input('ah')
+        #input('wait')
     return DetectionList, ActiveInd, multiTracker, ok
 
 
@@ -405,7 +434,7 @@ def main(_argv):
         #print(DetectionList)
         #print(i)
         #image = draw_bounding_box(image.copy(), boxes, np.arange(len(boxes),dtype=int))#= DrawBoundingBoxes(image.copy(), boxes)
-    YOLO_IMAGE_RESULT = draw_bounding_box(image.copy(), DetectionList, np.arange(len(boxes), dtype=int))#= DrawBoundingBoxes(image.copy(), boxes)
+    YOLO_IMAGE_RESULT = draw_bounding_box(image.copy(), DetectionList, np.arange(len(boxes), dtype=int) )#= DrawBoundingBoxes(image.copy(), boxes)
 
     if showImage == 1:
         cv2.imshow(winname1, YOLO_IMAGE_RESULT[:, :, ::-1])
