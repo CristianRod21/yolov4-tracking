@@ -94,6 +94,10 @@ def main(_argv):
 
     counter = dict()
     seen_id = []
+
+    frame_id = 0
+    frame_count = 0
+    
     # while video is running
     while True:
         return_value, frame = vid.read()
@@ -241,6 +245,11 @@ def main(_argv):
         if FLAGS.output:
             out.write(result)
         if cv2.waitKey(1) & 0xFF == ord('q'): break
+
+        if frame_id % 3 == 0:
+            input(f'Press any key to continue. Frame count {frame_count}')
+            frame_count += 1
+        frame_id += 1
     cv2.destroyAllWindows()
 
 if __name__ == '__main__':
